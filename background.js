@@ -1,24 +1,4 @@
 /**
- * A dictionary of header settings, keyed using the URLs supplied in the Options page
- */
-var headersPerUrl;
-
-/**
- * An array of the URL patterns specified on the Options page. Used to filter out the requests we wish to monitor
- */
-var urlsToAlter;
-
-/**
- * Maintains a count of the number of modified responses for display in the browser badge area
- */
-var alteredCount = 0;
-
-/**
- * Only display the alteredCount if the user wishes
- */
-var displayCount = true;
-
-/**
  * Returns the index of a given header object in the provided array
  * @param headerArray The Array to search in
  * @param newHeader The header to find
@@ -54,69 +34,25 @@ function mergeNewHeaders(originalHeaders, newHeaders) {
     return mergedHeaders;
 }
 
-/**
- * Retrieves the saved settings from localstorage
- * @return an Array of Objects containing { URL:String, headers:[ {name:String, value:String} ] }
- */
-function retrieveSettings() {
-    var siteSettings = localStorage['corsSites'];
-
-    if (!siteSettings) {
-        return null;
-    }
-
-    return JSON.parse(siteSettings);
-}
-
-/**
- * Looks for a set of headers that match the provided URL
- * @param url {String} The URL of the currently executing request
- * @param headersPerUrl {Object} dictionary object using URL as key
- */
-function matchUrlToHeaders(url, headersPerUrl) {
-    for (var key in headersPerUrl) {
-
-        //this match is expecting that the user will specify URL domain
-        //so key==http://www.foo.com && url==http://www.foo.com/?x=bar&whatever=12
-        //maybe support regex in the future
-        if (url.indexOf(key) > -1) {
-            return headersPerUrl[key];
-        }
-    }
-    return null;
-}
 
 /**
  * Responds to Chrome's onHeadersReceived event and injects all headers defined for the given URL
  * @param info {Object} Contains the request info
  * @see http://code.google.com/chrome/extensions/webRequest.html#event-onHeadersReceived
  */
-function onHeadersReceivedHandler(info) {
-    var desiredHeaders = matchUrlToHeaders(info.url, headersPerUrl);
+function onHeadersReceivedHandler(details) {
 
-    if (!desiredHeaders)
-        return {};
-
-    if (displayCount) {
-        chrome.browserAction.setBadgeText({ text:(++alteredCount).toString()});
+    var desiredHeaders = [];
+    gapi_url = "translation.googleapis.com";
+    if(details.url.includes(gapi_url)) {
+        desiredHeaders = [];
+    } else {
+        desiredHeaders = [{name: 'Access-Control-Allow-Origin', value: '*'}];
     }
 
-    return { responseHeaders:mergeNewHeaders(info.responseHeaders, desiredHeaders) };
-
+    
+    return { responseHeaders:mergeNewHeaders(details.responseHeaders, desiredHeaders) };
 }
-
-/**
- * Opens the Options page in a new tab
- */
-function showOptionsPage() {
-    chrome.tabs.create(
-        {
-            url:chrome.extension.getURL('/options.html')
-        }
-    );
-}
-
-
 
 /**
  * Initializes the background page by retrieving settings and establishing the onHeadersReceived listener.
@@ -124,62 +60,21 @@ function showOptionsPage() {
  */
 function init() {
 
-    var settings = retrieveSettings();
-    headersPerUrl = {};
-    urlsToAlter = [];
-
-    if (settings) {
-        for (var l = settings.length, i = 0; i < l; i++) {
-            //push each URL we wish to watch for into the array
-            urlsToAlter.push(settings[i].URL);
-
-            //use the URL as a key in the dictionary to lookup the specific headers to manipulate for that URL
-            headersPerUrl[ settings[i].URL.replace(/\*/g, '') ] = settings[i].headers;
-        }
-    }
-
-    chrome.browserAction.setBadgeText({ text:''});
-    displayCount = (localStorage['displayInterceptCount'] == undefined) ? true : JSON.parse(localStorage['displayInterceptCount']);
-
-    //show options page on icon click
-    chrome.browserAction.onClicked.removeListener(showOptionsPage);
-    chrome.browserAction.onClicked.addListener(showOptionsPage);
-
-    //when the user updates the settings via the Options page, we need to remove and re-add the listener
-    //especially to update the URL filters
-    if (chrome.webRequest.onHeadersReceived.hasListener(onHeadersReceivedHandler)) {
-        chrome.webRequest.onHeadersReceived.removeListener(onHeadersReceivedHandler)
-    }
-
     chrome.webRequest.onHeadersReceived.addListener(
         onHeadersReceivedHandler,
-        // filters
-        {
-            urls:urlsToAlter
-        },
-        // extraInfoSpec
-        ["blocking", "responseHeaders"]
+        {urls: ["<all_urls>"]},
+        ["blocking","responseHeaders"]
     );
 
     chrome.webRequest.onErrorOccurred.addListener(
         function(info){console.log('ForceCORS was unable to modify headers for: '+info.url +' - '+info.error)},
         {
-            urls:urlsToAlter
+            urls:["<all_urls>"]
         }
     );
 
     chrome.webRequest.handlerBehaviorChanged();
 }
-
-//establish a listener to respond to changes from the Options page
-chrome.extension.onRequest.addListener(function (request, sender, sendResponse) {
-    //retrigger the init method to load the new settings
-    init();
-
-    //respond that we got the message
-    sendResponse();
-});
-
 
 //make rocket go now!
 init();
